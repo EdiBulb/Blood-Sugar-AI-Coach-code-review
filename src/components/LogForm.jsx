@@ -38,8 +38,8 @@ export default function LogForm({ onSaved, setCoachMessage }) {
         <div>
           <label className="block text-sm">Time</label>
           <select
-            className="border rounded px-3 py-2"
-            value={timeSlot}
+            className="border rounded px-3 py-2 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100"
+            value={timeSlot} 
             onChange={(e) => setTimeSlot(e.target.value)}
           >
             {TIME_SLOTS.map((t) => (

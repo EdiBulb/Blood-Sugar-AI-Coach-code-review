@@ -10,28 +10,47 @@ app.use(express.json()); // 들어오는 JSON body을 자동으로 파싱해 req
 
 // ---- SQLite (파일 생성됨)
 const db = new Database("./data.db"); // 파일 생성 및 연결
+
 // SQL 실행, logs 테이블 없으면 생성
 db.exec(`
 CREATE TABLE IF NOT EXISTS logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL,        -- YYYY-MM-DD (local)
   timeSlot TEXT NOT NULL,    -- Morning|Noon|Evening
-  value INTEGER NOT NULL
+  value INTEGER NOT NULL,
+  note TEXT
 );
 `);
 
+// profile 테이블 (개인 목표/습관)
+db.exec(`
+CREATE TABLE IF NOT EXISTS profile (
+  id INTEGER PRIMARY KEY CHECK (id=1),
+  goals TEXT,
+  diet TEXT,
+  exercise TEXT,
+  target_min INTEGER,
+  target_max INTEGER
+);
+`);
+db.prepare(`
+INSERT OR IGNORE INTO profile (id, goals, diet, exercise, target_min, target_max)
+VALUES (1, '', '', '', 80, 140);
+`).run();
+
+
 // ---- Logs API - 클라이어트가 보낸 기록 저장(POST)
 app.post("/api/logs", (req, res) => { 
-  const { date, timeSlot, value } = req.body || {}; // 값 꺼냄
+  const { date, timeSlot, value, note  ='' } = req.body || {}; // 값 꺼냄
 
   // 유효성 검사
   if (!date || !timeSlot || typeof value !== "number") {
     return res.status(400).json({ error: "Invalid payload" });
   }
   // prepare: ?로 준비된 쿼리를 만들고 run으로 만든다.
-  const stmt = db.prepare("INSERT INTO logs (date, timeSlot, value) VALUES (?, ?, ?)");
+  const stmt = db.prepare("INSERT INTO logs (date, timeSlot, value, note) VALUES (?, ?, ?, ?)");
   // 실제 값을 바인딩 해서 INSERT 실행
-  stmt.run(date, timeSlot, value);
+  stmt.run(date, timeSlot, value, note);
   return res.json({ ok: true }); //성공 시, ok:true 반환
 });
 
@@ -48,7 +67,7 @@ app.get("/api/logs", (req, res) => {
 
   // prepare: ?로 준비된 쿼리를 만들고 run으로 만든다.
   const stmt = db.prepare(`
-    SELECT date, timeSlot, value
+    SELECT date, timeSlot, value, note
     FROM logs
     WHERE date BETWEEN ? AND ?
     ORDER BY date DESC, id DESC
@@ -57,40 +76,120 @@ app.get("/api/logs", (req, res) => {
   return res.json({ items });
 });
 
-// ---- AI Coach (일반 정보/동기부여용, 의료 자문 아님)
+// ---- Profile API ----
+app.get("/api/profile", (req,res)=>{
+  const row = db.prepare("SELECT * FROM profile WHERE id=1").get();
+  res.json(row);
+});
+
+app.put("/api/profile", (req,res)=>{
+  const { goals='', diet='', exercise='', target_min=80, target_max=140 } = req.body || {};
+  db.prepare(`
+    UPDATE profile SET goals=?, diet=?, exercise=?, target_min=?, target_max=? WHERE id=1
+  `).run(goals, diet, exercise, target_min, target_max);
+  res.json({ ok:true });
+});
+
+// ---- Weekly summary (raw + AI) ----
+app.get("/api/summary/weekly/raw", (req,res)=>{
+  const today=new Date(); const past=new Date(today); past.setDate(today.getDate()-7);
+  const from=past.toLocaleDateString("en-CA"), to=today.toLocaleDateString("en-CA");
+  const items = db.prepare(`
+    SELECT date,timeSlot,value,note FROM logs WHERE date BETWEEN ? AND ? ORDER BY date ASC
+  `).all(from,to);
+
+  const avg = items.length ? Math.round(items.reduce((s,r)=>s+r.value,0)/items.length) : 0;
+
+  // 최대 스파이크(인접 증가폭)
+  let spike = { delta:0, from:null, to:null };
+  for (let i=1;i<items.length;i++){
+    const d = items[i].value - items[i-1].value;
+    if (d>spike.delta) spike = { delta:d, from:items[i-1], to:items[i] };
+  }
+  res.json({ avg, items, spike });
+});
 //환경변수 OPENAI_API_KEY에서 키를 읽어 OpenAI 클라이언트 생성.
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// 이 코드는 프론트엔드에서 유저가 혈당 수치(value)와 시간대(timeSlot)을 보내면 Open AI를 GPT를 활용해서 조언을 만들어주는 백엔드 API
-// 누군가가 /api/coach라는 주소에 POST 요청을 보내면, 아래 함수를 실행해줘
-app.post("/api/coach", async (req, res) => {
-  const { value, timeSlot } = req.body || {};
-  // 유효성 검사
-  if (typeof value !== "number" || !timeSlot) {
-    return res.status(400).json({ error: "Invalid payload" });
+app.get("/api/summary/weekly", async (req,res)=>{
+  const profile = db.prepare("SELECT * FROM profile WHERE id=1").get() || {};
+  const today=new Date(); const past=new Date(today); past.setDate(today.getDate()-7);
+  const from=past.toLocaleDateString("en-CA"), to=today.toLocaleDateString("en-CA");
+  const items = db.prepare(`
+    SELECT date,timeSlot,value,note FROM logs WHERE date BETWEEN ? AND ? ORDER BY date ASC
+  `).all(from,to);
+
+  const avg = items.length ? Math.round(items.reduce((s,r)=>s+r.value,0)/items.length) : 0;
+  let spike = { delta:0, from:null, to:null };
+  for (let i=1;i<items.length;i++){
+    const d = items[i].value - items[i-1].value;
+    if (d>spike.delta) spike = { delta:d, from:items[i-1], to:items[i] };
   }
 
   const prompt = `
-You are a supportive diabetes coach.
-Blood sugar: ${value} mg/dL, time: ${timeSlot}.
-Reply in 1–2 short sentences with encouragement and a practical, non-clinical tip.
-Avoid medical diagnosis; general wellness suggestions only.
-`;
+You are a supportive diabetes coach. Create a brief weekly report in Korean (3–5 sentences).
+Data (last 7 days):
+Average mg/dL: ${avg}
+Largest spike: ${spike.delta} (from ${spike.from?.value ?? "-"} to ${spike.to?.value ?? "-"}), around ${spike.to?.date ?? "-"} ${spike.to?.timeSlot ?? "-"}.
+Logs (JSON): ${JSON.stringify(items)}
+User profile:
+- Goals: ${profile.goals}
+- Diet: ${profile.diet}
+- Exercise: ${profile.exercise}
+- Target range: ${profile.target_min}-${profile.target_max} mg/dL
+
+Instructions:
+- Hypothesize likely causes using notes (meal/exercise/fasting).
+- Give 1–2 concrete tips tailored to the user's profile and target range.
+- Avoid medical diagnosis; give general, safe lifestyle coaching.
+- Keep it concise.
+  `;
 
   try {
-    // GPT에게 요청 보내기
     const out = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // 모델명
-      messages: [{ role: "user", content: prompt }], // 메세지 내용
-      temperature: 0.7, // 창의성 정도
+      model: "gpt-4o-mini",
+      messages: [{ role:"user", content: prompt }],
+      temperature: 0.6,
     });
-    // GPT 답변 저장
-    const message = out.choices?.[0]?.message?.content?.trim() || "Keep up the good habits!";
-    // 클라이언트에게 응답 보내기
+    const message = out.choices?.[0]?.message?.content?.trim() || "이번 주 보고를 생성하지 못했습니다.";
+    res.json({ avg, spike, message });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error:"AI summary error" });
+  }
+});
+
+
+
+// ---- AI Coach (일반 정보/동기부여용, 의료 자문 아님)
+
+
+// 이 코드는 프론트엔드에서 유저가 혈당 수치(value)와 시간대(timeSlot)을 보내면 Open AI를 GPT를 활용해서 조언을 만들어주는 백엔드 API
+// 누군가가 /api/coach라는 주소에 POST 요청을 보내면, 아래 함수를 실행해줘
+// ---- Coach (personalized) ----
+app.post("/api/coach", async (req,res)=>{
+  const { value, timeSlot } = req.body || {};
+  const profile = db.prepare("SELECT * FROM profile WHERE id=1").get() || {};
+  const recent = db.prepare("SELECT date,timeSlot,value,note FROM logs ORDER BY id DESC LIMIT 3").all();
+
+  const prompt = `
+Act as a concise diabetes lifestyle coach in Korean (1–2 sentences).
+Current reading: ${value} mg/dL at ${timeSlot}.
+User profile: goals=${profile.goals}; diet=${profile.diet}; exercise=${profile.exercise}; target=${profile.target_min}-${profile.target_max}.
+Recent logs: ${JSON.stringify(recent)}
+Give one encouraging, practical tip aligned with target range and profile. No diagnosis.
+  `;
+  try {
+    const out = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role:"user", content: prompt }],
+      temperature: 0.7,
+    });
+    const message = out.choices?.[0]?.message?.content?.trim() || "좋은 습관을 꾸준히 이어가요!";
     res.json({ message });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "AI service error" });
+    res.status(500).json({ error:"AI coach error" });
   }
 });
 

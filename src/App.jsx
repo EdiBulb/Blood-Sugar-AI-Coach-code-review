@@ -5,6 +5,7 @@ import CoachCard from "./components/CoachCard";
 import LogsTable from "./components/LogsTable";
 import TrendChart from "./components/TrendChart";
 
+// 페이지 조립
 // 앱의 메인 화면
 export default function App() {
   const [logs, setLogs] = useState([]); // 서버에서 가져온 혈당 기록
@@ -32,7 +33,7 @@ export default function App() {
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       <header className="py-4 border-b bg-white/70 dark:bg-gray-800/50 backdrop-blur">
         <div className="max-w-5xl mx-auto px-4 flex items-center">
-          <h1 className="text-2xl font-bold">Blood Sugar Companion</h1>
+          <h1 className="text-2xl font-bold">Blood Sugar AI Coach</h1>
           <span className="ml-3 text-xs opacity-60">MVP • Done &gt; Perfect</span>
         </div>
       </header>
