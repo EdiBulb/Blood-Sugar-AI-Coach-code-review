@@ -7,6 +7,8 @@ import { TIME_SLOTS, todayLocalISO } from "../utils";
 export default function LogForm({ onSaved, setCoachMessage }) {
   const [value, setValue] = useState(""); // 혈당 수치
   const [timeSlot, setTimeSlot] = useState(TIME_SLOTS[0]); // 시간대(default: morning)
+  const [showNote, setShowNote] = useState(false); // 노트 보여주는 여부
+  const [note, setNote] = useState(""); // 노트
   const today = todayLocalISO();  // 오늘 날짜
 
   // 폼 제출 버튼 클릭 시, 
@@ -16,13 +18,14 @@ export default function LogForm({ onSaved, setCoachMessage }) {
     if (!num || num <= 0) return;
 
     // 1) 로그(사용자 입력값) 저장
-    await axios.post("/api/logs", { date: today, timeSlot, value: num });
+    await axios.post("/api/logs", { date: today, timeSlot, value: num, note: showNote ? note : "" });
 
     // 2) AI 코치 메시지
     const { data } = await axios.post("/api/coach", { value: num, timeSlot });
     setCoachMessage?.(data.message);
 
     setValue("");
+    setNote("");
     onSaved?.();
   }
 
@@ -61,11 +64,30 @@ export default function LogForm({ onSaved, setCoachMessage }) {
             required
           />
         </div>
-
+        <button
+          type="button"
+          onClick={()=>setShowNote(v=>!v)}
+          className="px-3 py-2 rounded border bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600"
+        >
+          {showNote ? "Hide memo" : "Memo add"}
+        </button>
+        
         <button className="ml-auto bg-blue-600 text-white px-4 py-2 rounded-lg hover:opacity-90">
           Save & Get Tip
         </button>
       </div>
+      {showNote && (
+        <div className="mt-3">
+          <label className="block text-sm mb-1">메모 (먹은 것/운동/공복 여부 등)</label>
+          <textarea
+            className="w-full border rounded px-3 py-2"
+            rows={3}
+            placeholder="예: 아침 오트밀, 20분 산책, 공복 채혈"
+            value={note}
+            onChange={(e)=>setNote(e.target.value)}
+          />
+        </div>
+      )}
     </form>
   );
 }
