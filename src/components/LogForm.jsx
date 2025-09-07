@@ -7,20 +7,20 @@ import { TIME_SLOTS, todayLocalISO } from "../utils";
 export default function LogForm({ onSaved, setCoachMessage }) {
   const [value, setValue] = useState(""); // 혈당 수치
   const [timeSlot, setTimeSlot] = useState(TIME_SLOTS[0]); // 시간대(default: morning)
-  const [showNote, setShowNote] = useState(false); // 노트 보여주는 여부
-  const [note, setNote] = useState(""); // 노트
+  const [showNote, setShowNote] = useState(false); // 메모 영역 보이기/숨기기 상태
+  const [note, setNote] = useState(""); // 메모 내용
   const today = todayLocalISO();  // 오늘 날짜
 
   // 폼 제출 버튼 클릭 시, 
   async function handleSubmit(e) {
-    e.preventDefault();
-    const num = Number(value);
-    if (!num || num <= 0) return;
+    e.preventDefault(); // 폼 제출 시 새로고침 방지
+    const num = Number(value); // 입력된 값 숫자로 변환
+    if (!num || num <= 0) return; // 값이 없거나 음수면 중단
 
     // 1) 로그(사용자 입력값) 저장
     await axios.post("/api/logs", { date: today, timeSlot, value: num, note: showNote ? note : "" });
 
-    // 2) AI 코치 메시지
+    // 2) AI 코치 메시지 받아옴 - 혈당값과 시간대를 보낼 경우, 
     const { data } = await axios.post("/api/coach", { value: num, timeSlot });
     setCoachMessage?.(data.message);
 
@@ -40,10 +40,11 @@ export default function LogForm({ onSaved, setCoachMessage }) {
 
         <div>
           <label className="block text-sm">Time</label>
-          <select
+            {/* 시간대 선택 드랍다운 */}
+          <select 
             className="border rounded px-3 py-2 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100"
             value={timeSlot} 
-            onChange={(e) => setTimeSlot(e.target.value)}
+            onChange={(e) => setTimeSlot(e.target.value)} 
           >
             {TIME_SLOTS.map((t) => (
               <option key={t}>{t}</option>
@@ -64,6 +65,7 @@ export default function LogForm({ onSaved, setCoachMessage }) {
             required
           />
         </div>
+
         <button
           type="button"
           onClick={()=>setShowNote(v=>!v)}
@@ -76,13 +78,14 @@ export default function LogForm({ onSaved, setCoachMessage }) {
           Save & Get Tip
         </button>
       </div>
+      {/* 메모 입력창 - 조건부 렌더링 */}
       {showNote && (
         <div className="mt-3">
-          <label className="block text-sm mb-1">메모 (먹은 것/운동/공복 여부 등)</label>
+          <label className="block text-sm mb-1">Memo (Food/Exercise/Fasting etc)</label>
           <textarea
             className="w-full border rounded px-3 py-2"
             rows={3}
-            placeholder="예: 아침 오트밀, 20분 산책, 공복 채혈"
+            placeholder="예: Breakfast Oat Milk, 20mins walk, fasting Blood check"
             value={note}
             onChange={(e)=>setNote(e.target.value)}
           />
