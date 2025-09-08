@@ -4,6 +4,11 @@ import LogForm from "./components/LogForm";
 import CoachCard from "./components/CoachCard";
 import LogsTable from "./components/LogsTable";
 import TrendChart from "./components/TrendChart";
+import WeeklySummary from "./components/WeeklySummary";
+
+import ProfileFab from "./components/ProfileFab";
+import SidePanel from "./components/SidePanel";
+import ProfileEditor from "./components/ProfileEditor";
 
 // 페이지 조립
 // 앱의 메인 화면
@@ -12,6 +17,9 @@ export default function App() {
   const [range, setRange] = useState("week"); // 'week' | 'month'
   const [chartData, setChartData] = useState([]); // 차트용 데이터(label, value)
   const [coachMessage, setCoachMessage] = useState(""); // AI 코치 메시지
+
+  const [profileOpen, setProfileOpen] = useState(false); // 프로필 패널 상태
+
 
   async function fetchLogs() {
     const { data } = await axios.get(`/api/logs?range=${range}`);
@@ -37,15 +45,30 @@ export default function App() {
           <span className="ml-3 text-xs opacity-60">MVP • Done &gt; Perfect</span>
         </div>
       </header>
-
+      
+      {/* 우측 상단 고정 프로필 버튼: 클릭 시, profileOpen 상태가 true이면 패널이 열리고 false면 닫힌다 */}
+      <ProfileFab
+        isOpen={profileOpen}
+        onClick={() => setProfileOpen(true)}
+        onClose={() => setProfileOpen(false)}
+      />
+      
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
         <LogForm onSaved={fetchLogs} setCoachMessage={setCoachMessage} />
         <CoachCard message={coachMessage} />
+
+        {/* 주간 요약 생성 */}
+        <WeeklySummary />
         <div className="grid md:grid-cols-2 gap-6">
           <TrendChart range={range} onRangeChange={setRange} data={chartData} />
           <LogsTable logs={logs} />
         </div>
       </main>
+
+      {/* ⬇️ 우측 슬라이드 패널 + 프로필 에디터 */}
+      <SidePanel open={profileOpen} onClose={()=>setProfileOpen(false)} title="My Goals & Lifestyle">
+        <ProfileEditor />
+      </SidePanel>
 
       <footer className="py-6 text-center opacity-60">
         Built for 6-week challenge • v1
