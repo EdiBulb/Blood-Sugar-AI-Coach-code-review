@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS logs (
   date TEXT NOT NULL,        -- YYYY-MM-DD (local)
   timeSlot TEXT NOT NULL,    -- Morning|Noon|Evening
   value INTEGER NOT NULL,
-  note TEXT
+  note TEXT,
+  mealState TEXT            -- 'Fasting' | 'Post-meal'
+
 );
 `);
 
@@ -41,16 +43,16 @@ VALUES (1, '', '', '', 80, 140);
 
 // ---- Logs API - 클라이어트가 보낸 기록 저장(POST)
 app.post("/api/logs", (req, res) => { 
-  const { date, timeSlot, value, note  ='' } = req.body || {}; // 값 꺼냄
+  const { date, timeSlot, value, note  ='', mealState = 'Fasting' } = req.body || {}; // 값 꺼냄
 
   // 유효성 검사
   if (!date || !timeSlot || typeof value !== "number") {
     return res.status(400).json({ error: "Invalid payload" });
   }
   // prepare: ?로 준비된 쿼리를 만들고 run으로 만든다.
-  const stmt = db.prepare("INSERT INTO logs (date, timeSlot, value, note) VALUES (?, ?, ?, ?)");
+  const stmt = db.prepare("INSERT INTO logs (date, timeSlot, value, note, mealState) VALUES (?, ?, ?, ?, ?)");
   // 실제 값을 바인딩 해서 INSERT 실행
-  stmt.run(date, timeSlot, value, note);
+  stmt.run(date, timeSlot, value, note, mealState);
   return res.json({ ok: true }); //성공 시, ok:true 반환
 });
 
@@ -67,7 +69,7 @@ app.get("/api/logs", (req, res) => {
 
   // prepare: ?로 준비된 쿼리를 만들고 run으로 만든다.
   const stmt = db.prepare(`
-    SELECT date, timeSlot, value, note
+    SELECT id, date, timeSlot, value, note, mealState
     FROM logs
     WHERE date BETWEEN ? AND ?
     ORDER BY date DESC, id DESC
@@ -75,6 +77,20 @@ app.get("/api/logs", (req, res) => {
   const items = stmt.all(from, to);
   return res.json({ items });
 });
+
+// Logs API - 삭제
+// 클라이언트가 /api/logs 경로에 DELETE요청을 보내면 이 콜백 함수가 실행됨
+app.delete("/api/logs", (req, res) => {
+  const { ids } = req.body || {}; // req.body가 비어있으면 {}로 대체하여 오류 방지
+  // 유효성 검사 - ids가 배열인지 혹은 빈 배열인지 
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids array required" });
+  }
+  const stmt = db.prepare(`DELETE FROM logs WHERE id IN (${ids.map(()=>"?").join(",")})`);
+  const info = stmt.run(ids); // 위의 쿼리에 ids배열을 넘겨서 실행
+  res.json({ ok: true, deleted: info.changes });
+});
+
 
 // ---- Profile API ----
 app.get("/api/profile", (req,res)=>{
@@ -95,7 +111,7 @@ app.get("/api/summary/weekly/raw", (req,res)=>{
   const today=new Date(); const past=new Date(today); past.setDate(today.getDate()-7);
   const from=past.toLocaleDateString("en-CA"), to=today.toLocaleDateString("en-CA");
   const items = db.prepare(`
-    SELECT date,timeSlot,value,note FROM logs WHERE date BETWEEN ? AND ? ORDER BY date ASC
+    SELECT date,timeSlot,value,note, mealState FROM logs WHERE date BETWEEN ? AND ? ORDER BY date ASC
   `).all(from,to);
 
   const avg = items.length ? Math.round(items.reduce((s,r)=>s+r.value,0)/items.length) : 0;
@@ -116,7 +132,7 @@ app.get("/api/summary/weekly", async (req,res)=>{
   const today=new Date(); const past=new Date(today); past.setDate(today.getDate()-7);
   const from=past.toLocaleDateString("en-CA"), to=today.toLocaleDateString("en-CA");
   const items = db.prepare(`
-    SELECT date,timeSlot,value,note FROM logs WHERE date BETWEEN ? AND ? ORDER BY date ASC
+    SELECT date,timeSlot,value,note, mealState FROM logs WHERE date BETWEEN ? AND ? ORDER BY date ASC
   `).all(from,to);
 
   const avg = items.length ? Math.round(items.reduce((s,r)=>s+r.value,0)/items.length) : 0;
@@ -170,11 +186,11 @@ Instructions:
 app.post("/api/coach", async (req,res)=>{
   const { value, timeSlot } = req.body || {};
   const profile = db.prepare("SELECT * FROM profile WHERE id=1").get() || {};
-  const recent = db.prepare("SELECT date,timeSlot,value,note FROM logs ORDER BY id DESC LIMIT 3").all();
+  const recent = db.prepare("SELECT date,timeSlot,value,note, mealState FROM logs ORDER BY id DESC LIMIT 3").all();
 
   const prompt = `
 Act as a concise diabetes lifestyle coach in Korean (1–2 sentences).
-Current reading: ${value} mg/dL at ${timeSlot}.
+Current reading: ${value} mg/dL at ${timeSlot} (${req.body.mealState || 'Fasting'}).
 User profile: goals=${profile.goals}; diet=${profile.diet}; exercise=${profile.exercise}; target=${profile.target_min}-${profile.target_max}.
 Recent logs: ${JSON.stringify(recent)}
 Give one encouraging, practical tip aligned with target range and profile. No diagnosis.
