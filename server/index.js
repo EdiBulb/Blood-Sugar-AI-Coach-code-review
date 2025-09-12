@@ -215,6 +215,9 @@ Give one encouraging, practical tip aligned with target range and profile. No di
   }
 });
 
-// 서버를 PORT 번호로 실행시킴
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on http://localhost:" + PORT));
+// Render 환경에서 포트 감지를 확실하게 하기 위해 parseInt 처리
+const PORT = parseInt(process.env.PORT) || 3000;
+
+app.listen(PORT, () => {
+  console.log(`[Render] Server running on port ${PORT}`);
+});
