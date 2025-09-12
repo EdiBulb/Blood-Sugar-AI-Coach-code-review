@@ -3,6 +3,12 @@ import cors from "cors"; // 브라우저에서 다른 도메인/포트의 API를
 import Database from "better-sqlite3"; // better-sqlite3: 디스크에 파일로 저장되는 SQLite 데이터베이스를 동기식 API로 다루는 패키지
 import OpenAI from "openai";
 
+// server/index.js
+const cors = require("cors");
+app.use(cors({
+  origin: "https://blood-sugar-ai-coach.netlify.app", // 또는 '*'
+}));
+
 
 const app = express(); // 서버 앱 인스턴스 생성
 app.use(cors()); //모든 출처에서 오는 요청을 허용(개발 편의). 배포 시엔 cors({ origin: "https://내-프론트-도메인" })처럼 제한하는 게 좋음
