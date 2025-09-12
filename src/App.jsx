@@ -11,36 +11,40 @@ import SidePanel from "./components/SidePanel";
 import ProfileEditor from "./components/ProfileEditor";
 import { mgdlToMmol } from "./utils";
 
+// 🔐 인증 관련 (유저 정보 가져오기)
+import { useAuth } from "./auth/AuthContext";
+import { useNavigate } from "react-router-dom";
+
 // 페이지 조립
 // 앱의 메인 화면
 export default function App() {
+  const { user, logout } = useAuth(); // 유저 정보 및 로그아웃 함수
+  const navigate = useNavigate();
+
   const [logs, setLogs] = useState([]); // 서버에서 가져온 혈당 기록
   const [range, setRange] = useState("week"); // 'week' | 'month'
   
   const [chartFasting, setChartFasting] = useState([]); // 공복 상태의 혈당 데이터(차트용)
   const [chartPost, setChartPost] = useState([]); // 식후 상태의 혈당 데이터(차트용)
   
-  const [chartData, setChartData] = useState([]); // 차트용 데이터(label, value)
   const [coachMessage, setCoachMessage] = useState(""); // AI 코치 메시지
-
   const [profileOpen, setProfileOpen] = useState(false); // 프로필 패널 상태
+  const [showLogs, setShowLogs] = useState(true); // Recent Logs 토글
 
-  const [showLogs, setShowLogs] = useState(true); //  Recent Logs 토글
-
+  // 데이터 요청 (range 별로)
   async function fetchLogs() {
-    const { data } = await axios.get(`/api/logs?range=${range}`);
+    const { data } = await axios.get(`/api/logs?range=${range}&username=${user.username}`);
     setLogs(data.items);
 
     // 차트용 라벨/값 구성 (날짜 오름차순)
-    // sorted: 오름차순된 전체 데이터 
     const sorted = [...data.items].sort((a, b) => a.date.localeCompare(b.date));
 
     // 공복 기록과 식후 기록을 나누어 데이터 필터링
-    const fasting = sorted.filter(r=> (r.mealState||'Fasting') === 'Fasting'); // mealState가 비었거나 명시적으로 Fasting인 데이터만 가져옴
+    const fasting = sorted.filter(r=> (r.mealState||'Fasting') === 'Fasting');
     const post    = sorted.filter(r=> r.mealState === 'Post-meal');
 
     setChartFasting(
-      fasting.map(r => ({ label: r.date.slice(5), value: mgdlToMmol(r.value) })) // mmol로 변환 / // slice(5): MM-DD e.g. label: "09-05"
+      fasting.map(r => ({ label: r.date.slice(5), value: mgdlToMmol(r.value) })) // mmol로 변환
     );
     setChartPost(
       post.map(r => ({ label: r.date.slice(5), value: mgdlToMmol(r.value) }))    // mmol로 변환
@@ -56,8 +60,18 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-4 flex items-center">
           <h1 className="text-2xl font-bold">Blood Sugar AI Coach</h1>
           <span className="ml-3 text-xs opacity-60">MVP • Done &gt; Perfect</span>
-          {/* range 토글 우측에 배치 */}
-          <div className="ml-auto flex gap-2">
+
+          {/* 유저 이름 + 로그아웃 + range 선택 버튼 */}
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-sm text-gray-600 dark:text-gray-300">
+              👤 {user?.username}
+            </span>
+            <button
+              onClick={() => { logout(); navigate("/login"); }}
+              className="text-sm px-3 py-1 bg-gray-300 dark:bg-gray-700 rounded"
+            >
+              Logout
+            </button>
             <button
               className={`px-3 py-1 rounded ${range==='week'?'bg-blue-600 text-white':'bg-gray-200 dark:bg-gray-700'}`}
               onClick={()=>setRange('week')}
@@ -81,7 +95,6 @@ export default function App() {
         <LogForm onSaved={fetchLogs} setCoachMessage={setCoachMessage} />
         <CoachCard message={coachMessage} />
 
-        
         <div className="grid md:grid-cols-2 gap-6">
           <TrendChart title="Fasting Trend (week/month)" data={chartFasting} />
           <TrendChart title="Post-meal Trend (week/month)" data={chartPost} />
@@ -104,18 +117,14 @@ export default function App() {
             </div>
           )}
         </div>
-
       </main>
 
       {/* 우측 슬라이드 패널 + 프로필 에디터 + weekly summary*/}
       <SidePanel open={profileOpen} onClose={()=>setProfileOpen(false)} title="My Goals & Lifestyle">
         <div className="space-y-4">
           <ProfileEditor />
-          {/* 주간 요약 생성 */}
           <WeeklySummary />
-          
         </div>
-        
       </SidePanel>
 
       <footer className="py-6 text-center opacity-60">
